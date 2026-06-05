@@ -56,12 +56,19 @@ export function apex() {
 /**
  * Tenant subdomain inferred from `window.location.hostname` minus the apex.
  * Empty string means "we're on the public/management host".
+ *
+ * `www` is ignored: `www.<apex>` is the public host, and a leading `www.`
+ * before a tenant subdomain is stripped (`www.alpha.<apex>` → `alpha`).
  */
 export function detectTenant() {
-  const host = window.location.hostname;
-  const root = apex();
+  const host = (window.location.hostname || "").toLowerCase();
+  const root = apex().toLowerCase();
   if (!host || host === root) return "";
-  if (host.endsWith("." + root)) return host.slice(0, -(root.length + 1));
+  if (host.endsWith("." + root)) {
+    let sub = host.slice(0, -(root.length + 1));
+    if (sub.startsWith("www.")) sub = sub.slice(4);   // www.alpha.apex → alpha
+    return sub === "www" ? "" : sub;                  // www.apex → public
+  }
   return "";  // hostname doesn't match the configured apex → treat as public
 }
 

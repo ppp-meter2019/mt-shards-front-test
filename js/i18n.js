@@ -86,6 +86,7 @@ const DICT = {
     "field.shard": "Шард",
     "field.lastError": "Остання помилка",
     "field.schemaExists": "Схема",
+    "field.lastMigration": "Остання міграція",
     "field.actions": "Дії",
     "field.product": "Товар",
     "field.quantity": "Кількість",
@@ -117,6 +118,7 @@ const DICT = {
     "tenant.action.activate": "Активувати",
     "tenant.action.deactivated.success": "Тенант деактивовано.",
     "tenant.action.activated.success": "Тенант активовано.",
+    "tenant.readonly": "Системний тенант — лише перегляд",
 
     // status timestamps
     "tenant.pending.since": "Pending з:",
@@ -214,6 +216,7 @@ const DICT = {
     "field.shard": "Shard",
     "field.lastError": "Last error",
     "field.schemaExists": "Schema",
+    "field.lastMigration": "Last migration",
     "field.actions": "Actions",
     "field.product": "Product",
     "field.quantity": "Quantity",
@@ -242,6 +245,7 @@ const DICT = {
     "tenant.action.activate": "Activate",
     "tenant.action.deactivated.success": "Tenant deactivated.",
     "tenant.action.activated.success": "Tenant activated.",
+    "tenant.readonly": "System tenant — read-only",
 
     "tenant.pending.since": "Pending since:",
     "tenant.failed.since": "Failed since:",

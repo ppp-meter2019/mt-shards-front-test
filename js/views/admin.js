@@ -218,6 +218,7 @@ async function renderTenantsAdmin(host) {
       el("th", {}, t("field.shard")),
       el("th", {}, t("field.status")),
       el("th", {}, t("field.schemaExists")),
+      el("th", {}, t("field.lastMigration")),
       el("th", {}, t("field.domains")),
       el("th", {}, t("field.admins")),
       el("th", {}, t("field.actions")),
@@ -251,12 +252,23 @@ async function renderTenantsAdmin(host) {
       ? el("td", {}, t("tenant.schema.yes"))
       : el("td", {}, el("span", { class: "muted" }, t("tenant.schema.no")));
 
+    const lm = row.last_migration;
+    const migrationCell = lm
+      ? el("td", {},
+          el("span", {}, `${lm.app}.${lm.name}`),
+          lm.applied
+            ? el("span", { class: "muted", style: "margin-left: 6px" }, formatTs(lm.applied))
+            : null,
+        )
+      : el("td", {}, el("span", { class: "muted" }, "—"));
+
     const tr = el("tr", {},
       el("td", {}, row.schema_name),
       el("td", {}, row.name),
       el("td", {}, shardLabel),
       el("td", {}, el("span", { class: "pill" }, t(`status.${row.status}`))),
       schemaCell,
+      migrationCell,
       el("td", {}, (row.domains || []).map((d) => d.domain).join(", ")),
       adminsCell,
       el("td", { class: "inline-actions" }),
@@ -267,6 +279,13 @@ async function renderTenantsAdmin(host) {
   }
 
   function fillActions(cell, row, anchorTr, tbody) {
+    // The public/management tenant is shown but read-only: it is a system
+    // record the backend rejects every write on. No action buttons for it.
+    if (row.is_public) {
+      cell.append(el("span", { class: "muted" }, t("tenant.readonly")));
+      return;
+    }
+
     // Action buttons driven by the (schema_exists, status) state machine.
     // Buttons marked "no-op" are intentional placeholders — the UI shows
     // the right affordance but the backend wiring isn't built yet.

@@ -149,7 +149,109 @@ function tenantAdminTabs() {
       label: t("tab.tenants"),
       render: renderTenantsAdmin,
     },
+    {
+      id: "shards",
+      label: t("tab.shards"),
+      render: renderShardsAdmin,
+    },
   ];
+}
+
+/**
+ * "Shards" tab: list shards (status, tenant count, created/modified) and
+ * manage them under strict rules enforced by the backend:
+ *   - default shard       → read-only (no buttons);
+ *   - active shard        → [Deactivate] (disabled while it hosts tenants);
+ *   - deactivated shard   → [Activate] [Delete].
+ */
+async function renderShardsAdmin(host) {
+  const card = el("div", { class: "card" }, el("h2", {}, t("tab.shards")));
+  const tableWrap = el("div", {}, el("p", { class: "muted" }, t("common.loading")));
+  card.append(tableWrap);
+  host.append(card);
+
+  const formatTs = (iso) =>
+    !iso ? "—" : iso.replace("T", " ").replace(/\..*$/, "").replace(/[+-]\d\d:?\d\d$/, "");
+
+  async function refresh() {
+    try {
+      const data = await api.get("/api/shards/");
+      renderTable(Array.isArray(data) ? data : (data.results || []));
+    } catch (error) {
+      clear(tableWrap);
+      tableWrap.append(el("div", { class: "message error" }, errorText(error)));
+    }
+  }
+
+  function statusLabel(row) {
+    if (row.is_default) return t("shard.status.default");
+    return row.is_active ? t("status.active") : t("status.deactivated");
+  }
+
+  async function act(row, kind) {
+    try {
+      if (kind === "delete") {
+        if (!confirm(t("shard.confirmDelete") + (row.name || row.alias) + "?")) return;
+        await api.delete(`/api/shards/${row.id}/`);
+      } else {
+        await api.post(`/api/shards/${row.id}/${kind}/`, {});
+      }
+      flash(card, "ok", t(`shard.action.${kind}.success`));
+      await refresh();
+    } catch (e) {
+      flash(card, "error", errorText(e));
+    }
+  }
+
+  function renderActions(row) {
+    const cell = el("td", { class: "inline-actions" });
+    if (row.is_default) {
+      cell.append(el("span", { class: "muted" }, t("shard.readonly")));
+    } else if (row.is_active) {
+      const hasTenants = (row.tenant_count || 0) > 0;
+      cell.append(el("button", {
+        disabled: hasTenants,
+        title: hasTenants ? t("shard.deactivate.hasTenants") : "",
+        onclick: () => act(row, "deactivate"),
+      }, t("shard.action.deactivate")));
+    } else {
+      cell.append(
+        el("button", { onclick: () => act(row, "activate") }, t("shard.action.activate")),
+        el("button", { class: "danger", onclick: () => act(row, "delete") }, t("common.delete")),
+      );
+    }
+    return cell;
+  }
+
+  function renderTable(rows) {
+    clear(tableWrap);
+    if (!rows.length) {
+      tableWrap.append(el("p", { class: "muted" }, t("common.empty")));
+      return;
+    }
+    const thead = el("thead", {}, el("tr", {},
+      el("th", {}, t("field.shard")),
+      el("th", {}, t("field.status")),
+      el("th", {}, t("field.tenantCount")),
+      el("th", {}, t("field.created")),
+      el("th", {}, t("field.modified")),
+      el("th", {}, t("field.actions")),
+    ));
+    const tbody = el("tbody");
+    for (const row of rows) {
+      tbody.append(el("tr", {},
+        el("td", {}, `${row.name || row.alias} [${row.alias}]`),
+        el("td", {}, el("span", { class: "pill" }, statusLabel(row))),
+        el("td", {}, row.tenant_count == null ? "—" : String(row.tenant_count)),
+        el("td", {}, formatTs(row.created_on)),
+        el("td", {}, formatTs(row.modified)),
+        renderActions(row),
+      ));
+    }
+    tableWrap.append(el("table", {}, thead, tbody));
+  }
+
+  await refresh();
 }
 
 /**
@@ -187,7 +289,10 @@ async function renderTenantsAdmin(host) {
   async function loadShards() {
     try {
       const data = await api.get("/api/shards/");
-      shards = Array.isArray(data) ? data : (data.results || []);
+      const all = Array.isArray(data) ? data : (data.results || []);
+      // /api/shards/ now lists ALL shards (for the management tab); the tenant
+      // create-form only offers active, non-default shards for placement.
+      shards = all.filter((s) => s.is_active && !s.is_default);
     } catch (error) {
       shards = [];
       flash(card, "error", errorText(error));

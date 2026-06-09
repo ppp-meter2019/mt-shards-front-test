@@ -110,6 +110,7 @@ const DICT = {
     "status.active": "Активний",
     "status.deactivated": "Деактивовано",
     "status.failed": "Помилка міграції",
+    "error.tenant_deactivated": "Цей тенант деактивовано. Зверніться до адміністратора.",
 
     // tenant per-row actions
     "tenant.action.createSchema": "Створити схему",
@@ -238,6 +239,7 @@ const DICT = {
     "status.active": "Active",
     "status.deactivated": "Deactivated",
     "status.failed": "Migration failed",
+    "error.tenant_deactivated": "This tenant has been deactivated. Contact your administrator.",
 
     "tenant.action.createSchema": "Create schema",
     "tenant.action.runMigrations": "Run migrations",

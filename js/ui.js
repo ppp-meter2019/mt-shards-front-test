@@ -1,5 +1,7 @@
 /** Tiny DOM helpers — keeps view code free of repetitive boilerplate. */
 
+import { t } from "./i18n.js";
+
 export function el(tag, attrs = {}, ...children) {
   const node = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
@@ -57,6 +59,12 @@ export function langToggle(getLang, setLang) {
 /** Pretty-print a DRF error payload. */
 export function errorText(err) {
   if (!err) return "Unknown error";
+  // Backend signals a deactivated tenant with a stable code (HTTP 403) — show a
+  // localized, human-friendly message instead of the raw payload.
+  if (err.payload && typeof err.payload === "object"
+      && err.payload.code === "tenant_deactivated") {
+    return t("error.tenant_deactivated");
+  }
   if (err.payload && typeof err.payload === "object") {
     return Object.entries(err.payload)
       .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : v}`)

@@ -391,15 +391,13 @@ async function renderTenantsAdmin(host) {
       return;
     }
 
-    // Action buttons driven by the (schema_exists, status) state machine.
-    // Buttons marked "no-op" are intentional placeholders — the UI shows
-    // the right affordance but the backend wiring isn't built yet.
+    // Action buttons driven by the tenant status. Provisioning runs ONLY on a
+    // NEW tenant (the backend rejects re-provisioning); every other status
+    // shows its own affordance instead.
     if (row.status === "new") {
-      if (!row.schema_exists) {
-        cell.append(el("button", { disabled: true, title: "not wired yet" }, t("tenant.action.createSchema")));
-      } else {
-        cell.append(el("button", { disabled: true, title: "not wired yet" }, t("tenant.action.runMigrations")));
-      }
+      cell.append(el("button", {
+        onclick: () => transition(row, "provision", t("tenant.action.provision.success")),
+      }, t("tenant.action.provision")));
     } else if (row.status === "pending") {
       cell.append(el("span", { class: "muted" }, `${t("tenant.pending.since")} ${formatTs(row.status_changed_at)}`));
     } else if (row.status === "failed") {

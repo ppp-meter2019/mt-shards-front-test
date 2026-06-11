@@ -157,6 +157,51 @@ tr:hover td { background: #fafafa; }
   white-space: nowrap;
 }
 
+/* Modal overlay + dialog */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  z-index: 1000;
+}
+.modal {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
+  max-width: min(90vw, 1000px);
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+}
+.modal-head {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+.modal-head h3 { margin: 0; font-size: 1rem; }
+.modal-close { margin-left: auto; padding: 0.2rem 0.55rem; }
+.modal-body { padding: 1rem; overflow: auto; }
+
+/* Console-style output (psql \dn+ etc.) */
+pre.console {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  white-space: pre;
+  background: #0f172a;
+  color: #e2e8f0;
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+
 .lang-toggle {
   display: inline-flex;
   gap: 0;

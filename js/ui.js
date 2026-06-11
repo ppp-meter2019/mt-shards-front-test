@@ -72,3 +72,21 @@ export function errorText(err) {
   }
   return err.message || String(err);
 }
+
+/** Simple modal overlay. Returns close(). Click the backdrop or ✕ to dismiss. */
+export function modal(titleText, bodyNode) {
+  const close = () => overlay.remove();
+  const dialog = el("div", { class: "modal" },
+    el("div", { class: "modal-head" },
+      el("h3", {}, titleText),
+      el("button", { class: "modal-close secondary", onclick: close }, "✕"),
+    ),
+    el("div", { class: "modal-body" }, bodyNode),
+  );
+  const overlay = el("div", {
+    class: "modal-overlay",
+    onclick: (e) => { if (e.target === overlay) close(); },
+  }, dialog);
+  document.body.append(overlay);
+  return close;
+}

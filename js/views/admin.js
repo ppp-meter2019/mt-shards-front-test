@@ -13,7 +13,7 @@
 import { api } from "../api.js";
 import { apex, getSession } from "../auth.js";
 import { t } from "../i18n.js";
-import { el, clear, flash, errorText } from "../ui.js";
+import { el, clear, flash, errorText, modal } from "../ui.js";
 
 export function renderAdmin(host) {
   clear(host);
@@ -213,8 +213,26 @@ async function renderShardsAdmin(host) {
     }
   }
 
+  async function showSchemas(row) {
+    const body = el("div", {}, el("p", { class: "muted" }, t("common.loading")));
+    modal(`\\dn+ — ${row.name || row.alias}`, body);
+    try {
+      const data = await api.get(`/api/shards/${row.id}/schemas/`);
+      clear(body);
+      body.append(el("pre", { class: "console" }, data.output));
+    } catch (e) {
+      clear(body);
+      body.append(el("div", { class: "message error" }, errorText(e)));
+    }
+  }
+
   function renderActions(row) {
     const cell = el("td", { class: "inline-actions" });
+    // Low-level DB peek — available for every shard (incl. the default one).
+    cell.append(el("button", {
+      class: "secondary",
+      onclick: () => showSchemas(row),
+    }, t("shard.lowlevel")));
     if (row.is_default) {
       cell.append(el("span", { class: "muted" }, t("shard.readonly")));
     } else if (row.is_active) {

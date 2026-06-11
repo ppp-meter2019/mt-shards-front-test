@@ -49,12 +49,13 @@ export function renderAdmin(host) {
 // Generic CRUD card builder.
 // ---------------------------------------------------------------------------
 
-function crudCard({ title, listEndpoint, createEndpoint, deleteEndpoint, columns, fields, transformCreate }) {
+function crudCard({ title, listEndpoint, createEndpoint, deleteEndpoint, columns, fields, transformCreate, headerActions }) {
   return (host) => {
-    const card = el("div", { class: "card" }, el("h2", {}, title));
+    const card = el("div", { class: "card" });
+    const header = el("div", { class: "card-header" }, el("h2", {}, title));
     const tableWrap = el("div", {}, el("p", { class: "muted" }, t("common.loading")));
     const formWrap = el("div");
-    card.append(tableWrap, formWrap);
+    card.append(header, tableWrap, formWrap);
     host.append(card);
 
     async function refresh() {
@@ -132,6 +133,15 @@ function crudCard({ title, listEndpoint, createEndpoint, deleteEndpoint, columns
         } catch (e) { flash(card, "error", errorText(e)); }
       });
       formWrap.append(form);
+    }
+
+    // Optional header buttons (e.g. "Generate 2 products"); placed after refresh
+    // so a handler can re-list once its action is queued/done.
+    for (const a of (headerActions || [])) {
+      header.append(el("button", {
+        class: a.class,
+        onclick: () => a.run({ card, refresh }),
+      }, a.label));
     }
 
     refresh();
@@ -601,6 +611,22 @@ function companyAdminTabs() {
         fields: [
           { name: "name", label: t("field.name"), required: true },
           { name: "price", label: t("field.price"), required: true, type: "number", step: "0.01" },
+        ],
+        headerActions: [
+          {
+            label: t("product.generate"),
+            class: "secondary",
+            // Async: the worker creates the products → 202 now, list a moment later.
+            run: async ({ card, refresh }) => {
+              try {
+                await api.post("/api/products/generate/", {});
+                flash(card, "ok", t("product.generate.queued"));
+                setTimeout(refresh, 1500);
+              } catch (e) {
+                flash(card, "error", errorText(e));
+              }
+            },
+          },
         ],
       }),
     },

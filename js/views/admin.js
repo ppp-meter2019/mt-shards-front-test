@@ -452,14 +452,34 @@ async function renderTenantsAdmin(host) {
 
     cell.append(el("button", {
       class: "danger",
-      onclick: async () => {
-        if (!confirm(t("common.confirmDelete") + row.id + "?")) return;
-        try {
-          await api.delete(`/api/tenants/${row.id}/`);
-          await refresh();
-        } catch (e) { flash(card, "error", errorText(e)); }
-      },
+      onclick: () => confirmDeleteTenant(row),
     }, t("common.delete")));
+  }
+
+  function confirmDeleteTenant(row) {
+    const dropChk = el("input", { type: "checkbox" });
+    let close;
+    const doDelete = async () => {
+      const drop = dropChk.checked;
+      close();
+      try {
+        // ?drop_schema=true → backend queues a service task that drops the
+        // schema on the tenant's shard after the row is removed.
+        await api.delete(`/api/tenants/${row.id}/${drop ? "?drop_schema=true" : ""}`);
+        flash(card, "ok", drop ? t("tenant.delete.queuedDrop") : t("tenant.delete.done"));
+        await refresh();
+      } catch (e) { flash(card, "error", errorText(e)); }
+    };
+    const body = el("div", {},
+      el("p", {}, `${t("tenant.delete.confirm")} "${row.schema_name}"?`),
+      el("label", { style: "display:flex; align-items:center; gap:0.5rem; font-weight:normal; margin:0.6rem 0" },
+        dropChk, t("tenant.delete.dropSchema")),
+      el("div", { style: "margin-top:1rem; display:flex; gap:0.5rem" },
+        el("button", { class: "danger", onclick: doDelete }, t("common.delete")),
+        el("button", { class: "secondary", onclick: () => close() }, t("common.cancel")),
+      ),
+    );
+    close = modal(t("tenant.delete.title"), body);
   }
 
   async function transition(tenant, endpoint, successMsg) {

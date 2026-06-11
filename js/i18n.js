@@ -137,6 +137,11 @@ const DICT = {
     "tenant.action.provision.success": "Провіжн поставлено в чергу.",
     "tenant.action.deactivated.success": "Тенант деактивовано.",
     "tenant.action.activated.success": "Тенант активовано.",
+    "tenant.delete.title": "Видалити тенант",
+    "tenant.delete.confirm": "Видалити тенант",
+    "tenant.delete.dropSchema": "Також видалити схему з даними (незворотно)",
+    "tenant.delete.done": "Тенант видалено.",
+    "tenant.delete.queuedDrop": "Тенант видалено; дроп схеми поставлено в чергу.",
     "tenant.readonly": "Системний тенант — лише перегляд",
 
     // status timestamps
@@ -283,6 +288,11 @@ const DICT = {
     "tenant.action.provision.success": "Provisioning queued.",
     "tenant.action.deactivated.success": "Tenant deactivated.",
     "tenant.action.activated.success": "Tenant activated.",
+    "tenant.delete.title": "Delete tenant",
+    "tenant.delete.confirm": "Delete tenant",
+    "tenant.delete.dropSchema": "Also drop the schema and its data (irreversible)",
+    "tenant.delete.done": "Tenant deleted.",
+    "tenant.delete.queuedDrop": "Tenant deleted; schema drop queued.",
     "tenant.readonly": "System tenant — read-only",
 
     "tenant.pending.since": "Pending since:",

@@ -11,7 +11,7 @@
  */
 
 import { api } from "../api.js";
-import { apex, getSession } from "../auth.js";
+import { getSession } from "../auth.js";
 import { t } from "../i18n.js";
 import { el, clear, flash, errorText, modal } from "../ui.js";
 
@@ -164,7 +164,178 @@ function tenantAdminTabs() {
       label: t("tab.shards"),
       render: renderShardsAdmin,
     },
+    {
+      id: "reserved",
+      label: t("tab.reserved"),
+      render: renderReservedHostsAdmin,
+    },
   ];
+}
+
+/**
+ * "Reserved hosts" tab: manage the deny rules that stop business tenants from
+ * claiming service subdomains (www/api/admin/...) and platform hosts. Backed by
+ * /api/reserved-hosts/ (CRUD + /{id}/conflicts/). Enforced server-side on tenant
+ * and domain creation.
+ */
+async function renderReservedHostsAdmin(host) {
+  const card = el("div", { class: "card" }, el("h2", {}, t("tab.reserved")));
+  card.append(el("p", { class: "muted" }, t("reserved.help")));
+  const tableWrap = el("div", {}, el("p", { class: "muted" }, t("common.loading")));
+  const formWrap = el("div");
+  card.append(tableWrap, formWrap);
+  host.append(card);
+
+  const formatTs = (iso) =>
+    !iso ? "—" : iso.replace("T", " ").replace(/\..*$/, "").replace(/[+-]\d\d:?\d\d$/, "");
+  const typeLabel = (mt) => t(`reserved.matchType.${mt}`);
+
+  async function refresh() {
+    try {
+      const data = await api.get("/api/reserved-hosts/");
+      renderTable(Array.isArray(data) ? data : (data.results || []));
+    } catch (error) {
+      clear(tableWrap);
+      tableWrap.append(el("div", { class: "message error" }, errorText(error)));
+    }
+  }
+
+  async function toggleActive(row) {
+    try {
+      await api.patch(`/api/reserved-hosts/${row.id}/`, { is_active: !row.is_active });
+      flash(card, "ok", t("reserved.toggled"));
+      await refresh();
+    } catch (e) { flash(card, "error", errorText(e)); }
+  }
+
+  async function del(row) {
+    if (!confirm(t("reserved.confirmDelete") + `"${row.value}"?`)) return;
+    try {
+      await api.delete(`/api/reserved-hosts/${row.id}/`);
+      flash(card, "ok", t("reserved.deleted"));
+      await refresh();
+    } catch (e) { flash(card, "error", errorText(e)); }
+  }
+
+  async function showConflicts(row) {
+    const body = el("div", {}, el("p", { class: "muted" }, t("common.loading")));
+    modal(`${t("reserved.conflicts.title")} — ${row.value}`, body);
+    try {
+      const data = await api.get(`/api/reserved-hosts/${row.id}/conflicts/`);
+      clear(body);
+      if (!data.count) {
+        body.append(el("p", { class: "muted" }, t("reserved.conflicts.none")));
+        return;
+      }
+      body.append(el("p", {}, `${t("reserved.conflicts.count")} ${data.count}`));
+      if (data.sample) {
+        body.append(el("p", { class: "muted", style: "font-size: 0.85em" },
+          `${t("reserved.conflicts.sampleShown")} ${data.domains.length} / ${data.count}`));
+      }
+      body.append(el("table", {},
+        el("thead", {}, el("tr", {},
+          el("th", {}, t("field.domains")), el("th", {}, t("field.schema")))),
+        el("tbody", {}, ...data.domains.map((d) => el("tr", {},
+          el("td", {}, d.domain), el("td", {}, d.tenant)))),
+      ));
+    } catch (e) {
+      clear(body);
+      body.append(el("div", { class: "message error" }, errorText(e)));
+    }
+  }
+
+  function renderTable(rows) {
+    clear(tableWrap);
+    if (!rows.length) {
+      tableWrap.append(el("p", { class: "muted" }, t("common.empty")));
+      return;
+    }
+    const thead = el("thead", {}, el("tr", {},
+      el("th", {}, t("reserved.field.matchType")),
+      el("th", {}, t("reserved.field.value")),
+      el("th", {}, t("reserved.field.base")),
+      el("th", {}, t("reserved.field.active")),
+      el("th", {}, t("reserved.field.note")),
+      el("th", {}, t("field.modified")),
+      el("th", {}, t("field.actions")),
+    ));
+    const tbody = el("tbody");
+    for (const row of rows) {
+      tbody.append(el("tr", {},
+        el("td", {}, typeLabel(row.match_type)),
+        el("td", {}, el("code", {}, row.value)),
+        el("td", {}, row.base_domain || "—"),
+        el("td", {}, el("span", { class: "pill" },
+          row.is_active ? t("reserved.active.yes") : t("reserved.active.no"))),
+        el("td", {}, row.note || "—"),
+        el("td", {}, formatTs(row.modified)),
+        el("td", { class: "inline-actions" },
+          el("button", { class: "secondary", onclick: () => showConflicts(row) },
+            t("reserved.action.conflicts")),
+          el("button", { onclick: () => toggleActive(row) },
+            row.is_active ? t("reserved.action.disable") : t("reserved.action.enable")),
+          el("button", { class: "danger", onclick: () => del(row) }, t("common.delete")),
+        ),
+      ));
+    }
+    tableWrap.append(el("table", {}, thead, tbody));
+  }
+
+  // -------------------------------------------------------------------
+  // Create form. base_domain is only meaningful for match_type=label;
+  // it's enabled only then (the backend clears it for exact/suffix anyway).
+  // -------------------------------------------------------------------
+  formWrap.append(el("h3", {}, t("reserved.add")));
+
+  const typeSelect = el("select", { name: "match_type" },
+    el("option", { value: "label" }, t("reserved.matchType.label")),
+    el("option", { value: "exact" }, t("reserved.matchType.exact")),
+    el("option", { value: "suffix" }, t("reserved.matchType.suffix")),
+  );
+  const valueInput = el("input", { name: "value", required: true, placeholder: "www" });
+  const baseInput = el("input", { name: "base_domain", placeholder: t("reserved.base.placeholder") });
+  const noteInput = el("input", { name: "note" });
+
+  function syncBase() {
+    const isLabel = typeSelect.value === "label";
+    baseInput.disabled = !isLabel;
+    if (!isLabel) baseInput.value = "";
+    valueInput.placeholder = isLabel ? "www" : "manage.routegenie.com";
+  }
+  typeSelect.addEventListener("change", syncBase);
+  syncBase();
+
+  const form = el("form", { class: "row" },
+    formField(t("reserved.field.matchType"), typeSelect),
+    formField(t("reserved.field.value"), valueInput),
+    el("div", { style: "min-width: 200px" },
+      el("label", {}, t("reserved.field.base")),
+      baseInput,
+      el("div", { class: "muted", style: "font-size: 0.8em; margin-top: 0.2rem" }, t("reserved.base.hint")),
+    ),
+    formField(t("reserved.field.note"), noteInput),
+    el("div", { style: "align-self: flex-end" }, el("button", { type: "submit" }, t("common.add"))),
+  );
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const payload = {
+      match_type: typeSelect.value,
+      value: valueInput.value.trim(),
+      base_domain: typeSelect.value === "label" ? baseInput.value.trim() : "",
+      note: noteInput.value.trim(),
+    };
+    try {
+      await api.post("/api/reserved-hosts/", payload);
+      flash(card, "ok", t("reserved.added"));
+      form.reset();
+      syncBase();
+      await refresh();
+    } catch (e) { flash(card, "error", errorText(e)); }
+  });
+  formWrap.append(form);
+
+  await refresh();
 }
 
 /**
@@ -313,6 +484,17 @@ async function renderTenantsAdmin(host) {
   // here is what detectTenant() will see on login.
 
   let shards = [];
+  let baseDomains = [];
+
+  async function loadBaseDomains() {
+    try {
+      const data = await api.get("/api/base-domains/");
+      baseDomains = data.base_domains || [];
+    } catch (error) {
+      baseDomains = [];
+      flash(card, "error", errorText(error));
+    }
+  }
 
   async function loadShards() {
     try {
@@ -347,7 +529,7 @@ async function renderTenantsAdmin(host) {
     const table = el("table");
     const thead = el("thead", {}, el("tr", {},
       el("th", {}, t("field.schema")),
-      el("th", {}, t("field.name")),
+      el("th", {}, t("field.companyName")),
       el("th", {}, t("field.shard")),
       el("th", {}, t("field.status")),
       el("th", {}, t("field.schemaExists")),
@@ -397,7 +579,7 @@ async function renderTenantsAdmin(host) {
 
     const tr = el("tr", {},
       el("td", {}, row.schema_name),
-      el("td", {}, row.name),
+      el("td", { title: row.description || "" }, row.company_name),
       el("td", {}, shardLabel),
       el("td", {}, el("span", { class: "pill" }, t(`status.${row.status}`))),
       schemaCell,
@@ -449,6 +631,11 @@ async function renderTenantsAdmin(host) {
         onclick: () => transition(row, "activate", t("tenant.action.activated.success")),
       }, t("tenant.action.activate")));
     }
+
+    cell.append(el("button", {
+      class: "secondary",
+      onclick: () => openEditTenant(row),
+    }, t("tenant.edit.button")));
 
     cell.append(el("button", {
       class: "danger",
@@ -556,75 +743,182 @@ async function renderTenantsAdmin(host) {
   }
 
   // -------------------------------------------------------------------
-  // Create form. Built once after shards are loaded; submit POSTs
-  // {schema_name, name, shard_id, domain} and re-fetches the list.
+  // Edit modal: company_name + description + primary domain. schema_name is
+  // immutable (shown read-only); shard is not editable here. Domain uses the
+  // same picker, initialized from the tenant's current primary domain.
   // -------------------------------------------------------------------
+  function openEditTenant(row) {
+    const company = el("input", { required: true, value: row.company_name || "" });
+    const desc = el("textarea", { rows: 2 });
+    desc.value = row.description || "";
+    const picker = makeDomainPicker(baseDomains, () => {});
+    const primary = (row.domains || []).find((d) => d.is_primary) || (row.domains || [])[0];
+    if (primary) picker.init(primary.domain);
 
-  await loadShards();
+    let close;
+    const save = async () => {
+      if (!company.value.trim()) { flash(card, "error", t("tenant.form.incomplete")); return; }
+      const domErr = picker.selected() ? picker.validate() : null;
+      if (domErr) { flash(card, "error", domErr); return; }
+      const payload = { company_name: company.value.trim(), description: desc.value.trim() };
+      if (picker.selected()) payload.domain = picker.value();   // omit => keep current
+      try {
+        await api.patch(`/api/tenants/${row.id}/`, payload);
+        flash(card, "ok", t("tenant.edit.saved"));
+        close();
+        await refresh();
+      } catch (e) { flash(card, "error", errorText(e)); }
+    };
+
+    const body = el("div", {},
+      el("p", { class: "muted" }, `${t("field.schema")}: `, el("code", {}, row.schema_name)),
+      formField(t("tenant.field.company"), company),
+      formField(t("tenant.field.description"), desc),
+      formField(t("tenant.field.domain"), picker.el),
+      el("div", { style: "margin-top:1rem; display:flex; gap:0.5rem" },
+        el("button", { onclick: save }, t("common.save")),
+        el("button", { class: "secondary", onclick: () => close() }, t("common.cancel")),
+      ),
+    );
+    close = modal(t("tenant.edit.title"), body);
+  }
+
+  // -------------------------------------------------------------------
+  // Create form. Fields stay DISABLED until a base domain (or "Custom") is
+  // chosen in the domain picker (the dropdown is the gate). Then
+  // {schema_name, company_name, description, shard_id, domain} is POSTed.
+  // -------------------------------------------------------------------
+  await Promise.all([loadShards(), loadBaseDomains()]);
 
   formWrap.append(el("h3", {}, t("common.create")));
 
-  const schemaInput = el("input", { name: "schema_name", required: true, placeholder: "delta" });
-  const nameInput = el("input", { name: "name", required: true, placeholder: "Delta LLC" });
-  const shardSelect = el("select", { name: "shard_id", required: true },
+  const companyInput = el("input", { required: true, placeholder: "Alpha LLC", disabled: true });
+  const descInput = el("textarea", { rows: 2, disabled: true });
+  const schemaInput = el("input", { required: true, placeholder: "alpha", disabled: true });
+  const shardSelect = el("select", { required: true, disabled: true },
     el("option", { value: "" }, t("tenant.shard.placeholder")),
     ...shards.map((s) => el("option", { value: s.id }, `${s.name || s.alias} [${s.alias}]`)),
   );
-  const domainPreview = el("code", { style: "background: #f3f4f6; padding: 0.25rem 0.5rem; border-radius: 4px" }, "—");
+  const gated = [companyInput, descInput, schemaInput, shardSelect];
 
-  function updatePreview() {
-    const schema = (schemaInput.value || "").toLowerCase().trim();
-    domainPreview.textContent = schema ? `${schema}.${apex()}` : "—";
-  }
-  schemaInput.addEventListener("input", updatePreview);
+  const picker = makeDomainPicker(baseDomains, (selected) => {
+    gated.forEach((i) => { i.disabled = !selected; });
+  });
 
   const form = el("form", { class: "row" },
-    el("div", { style: "min-width: 160px" },
-      el("label", {}, t("tenant.field.schema")),
-      schemaInput,
-    ),
-    el("div", { style: "min-width: 220px" },
-      el("label", {}, t("tenant.field.name")),
-      nameInput,
-    ),
-    el("div", { style: "min-width: 220px" },
-      el("label", {}, t("tenant.field.shard")),
-      shardSelect,
-    ),
-    el("div", { style: "min-width: 240px" },
-      el("label", {}, t("tenant.field.domain")),
-      el("div", { style: "padding-top: 0.4rem" }, domainPreview),
-    ),
+    // Domain picker FIRST: its dropdown is the gate — until an option is chosen the
+    // fields below stay disabled, so the form reads top-down.
+    formField(t("tenant.field.domain"), picker.el),
+    formField(t("tenant.field.company"), companyInput),
+    formField(t("tenant.field.description"), descInput),
+    formField(t("tenant.field.schema"), schemaInput),
+    formField(t("tenant.field.shard"), shardSelect),
     el("div", { style: "align-self: flex-end" }, el("button", { type: "submit" }, t("common.add"))),
   );
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const schema = (schemaInput.value || "").toLowerCase().trim();
+    if (!picker.selected()) { flash(card, "error", t("tenant.domain.pick")); return; }
+    const domErr = picker.validate();
+    if (domErr) { flash(card, "error", domErr); return; }
+    const schema = schemaInput.value.trim().toLowerCase();
+    const company = companyInput.value.trim();
     const shardId = shardSelect.value;
-    if (!shardId) {
-      flash(card, "error", t("tenant.shard.placeholder"));
-      return;
-    }
-    const payload = {
-      schema_name: schema,
-      name: nameInput.value.trim(),
-      shard_id: Number(shardId),
-      domain: `${schema}.${apex()}`,
-    };
+    if (!company || !schema || !shardId) { flash(card, "error", t("tenant.form.incomplete")); return; }
     try {
-      await api.post("/api/tenants/", payload);
+      await api.post("/api/tenants/", {
+        schema_name: schema,
+        company_name: company,
+        description: descInput.value.trim(),
+        shard_id: Number(shardId),
+        domain: picker.value(),
+      });
       flash(card, "ok", t("common.added"));
       form.reset();
-      updatePreview();
+      picker.reset();          // clears the picker AND re-gates the fields (disabled)
       await refresh();
-    } catch (e) {
-      flash(card, "error", errorText(e));
-    }
+    } catch (e) { flash(card, "error", errorText(e)); }
   });
   formWrap.append(form);
 
   refresh();
+}
+
+/**
+ * Domain picker: a base-domain dropdown (+ "Custom") that gates and assembles the
+ * domain. Base selected → prefix input + fixed ".<base>" suffix (domain = prefix +
+ * "." + base; multi-level prefix allowed). Custom → free host input (light client
+ * check; the backend is the authority). onSelectionChange(bool) fires so the caller
+ * can enable/disable the rest of the form.
+ */
+function makeDomainPicker(baseDomains, onSelectionChange) {
+  const CUSTOM = "__custom__";
+  const select = el("select", {},
+    el("option", { value: "" }, t("tenant.domain.pick")),
+    ...baseDomains.map((b) => el("option", { value: b }, `.${b}`)),
+    el("option", { value: CUSTOM }, t("tenant.domain.custom")),
+  );
+  const prefix = el("input", { placeholder: "acme", disabled: true });
+  const suffix = el("code", { class: "muted" }, "");
+  const prefixWrap = el("span", { style: "display:none; align-items:center; gap:4px" }, prefix, suffix);
+  const custom = el("input", { placeholder: "acme.example.com", disabled: true, style: "display:none" });
+
+  function refresh() {
+    const v = select.value;
+    const isBase = Boolean(v) && v !== CUSTOM;
+    const isCustom = v === CUSTOM;
+    prefixWrap.style.display = isBase ? "inline-flex" : "none";
+    prefix.disabled = !isBase;
+    custom.style.display = isCustom ? "inline-block" : "none";
+    custom.disabled = !isCustom;
+    if (isBase) suffix.textContent = `.${v}`;
+    onSelectionChange(Boolean(v));
+  }
+  select.addEventListener("change", refresh);
+
+  return {
+    el: el("div", { style: "display:flex; flex-wrap:wrap; align-items:center; gap:6px" },
+      select, prefixWrap, custom),
+    selected: () => Boolean(select.value),
+    value() {
+      const v = select.value;
+      if (!v) return "";
+      if (v === CUSTOM) return custom.value.trim().toLowerCase();
+      return `${prefix.value.trim().toLowerCase()}.${v}`;
+    },
+    validate() {
+      const v = select.value;
+      if (!v) return t("tenant.domain.pick");
+      if (v === CUSTOM) {
+        const h = custom.value.trim().toLowerCase();
+        if (!h || !/^[a-z0-9.-]+$/.test(h) || !h.includes(".")) return t("tenant.domain.invalidCustom");
+        return null;
+      }
+      if (!prefix.value.trim()) return t("tenant.domain.prefixRequired");
+      return null;
+    },
+    init(host) {
+      host = (host || "").toLowerCase();   // stored host may be non-normalized (CLI)
+      const base = baseDomains
+        .filter((b) => host === b || host.endsWith(`.${b}`))
+        .sort((a, b) => b.length - a.length)[0];
+      if (base && host.endsWith(`.${base}`)) {
+        select.value = base;
+        refresh();
+        prefix.value = host.slice(0, -(base.length + 1));
+      } else {
+        select.value = CUSTOM;
+        refresh();
+        custom.value = host;
+      }
+    },
+    reset() {
+      select.value = "";
+      prefix.value = "";
+      custom.value = "";
+      refresh();
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
